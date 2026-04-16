@@ -1,8 +1,0 @@
-numpy
-pandas
-toml
-pinecone[grpc]
-langchain
-langchain_community
-streamlit
-python-dotenv

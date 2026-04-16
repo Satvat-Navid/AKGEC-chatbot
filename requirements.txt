@@ -8,3 +8,6 @@ slowapi
 instructor
 crawl4ai
 ipykernel
+langchain
+langchain-groq
+langchain-pinecone
