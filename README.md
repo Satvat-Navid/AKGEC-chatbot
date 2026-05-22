@@ -50,9 +50,9 @@ AKGEC_chatbot/
    ```
 
 2. **Create a virtual environment**:
-   ```bash
+   ```powershell
    python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   .venv\Scripts\activate.ps1  # On CMD -  .venv\Scripts\activate 
    ```
 
 3. **Install dependencies**:

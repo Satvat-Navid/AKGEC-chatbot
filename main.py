@@ -35,7 +35,7 @@ async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExc
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://chatbot.mlcoe.tech/", "https://chatbot.satwat.xyz/"],
+    allow_origins=["https://chatbot.mlcoe.tech/", "https://chatbot.satvat.pro/"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
