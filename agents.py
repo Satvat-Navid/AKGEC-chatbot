@@ -19,7 +19,8 @@ pc = Pinecone(api_key=PC_API_KEY)
 index = pc.Index('akgec-data')
 
 # Model selection
-TOOL_MODEL = "moonshotai/kimi-k2-instruct-0905"
+# TOOL_MODEL = "moonshotai/kimi-k2-instruct-0905"
+TOOL_MODEL = "qwen/qwen3.8-27b"
 GENERAL_MODEL = "openai/gpt-oss-120b"
 
 # Response from AI
