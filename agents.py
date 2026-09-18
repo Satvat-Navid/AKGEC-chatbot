@@ -76,7 +76,8 @@ async def summerize(chat, model=GENERAL_MODEL, max_tokens=512):
 
 # Pinecone Vector db search
 def retrive_context(query, k=2):
-    """Funtion to retrive data from vector database using similarity search with the provided test"""
+    """Funtion to retrive data from vector database using similarity search with the 
+        provided query and return the context along with the query and context length."""
     try:
         query_embedding = pc.inference.embed(
             # model="multilingual-e5-large",

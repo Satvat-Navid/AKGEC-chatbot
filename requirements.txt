@@ -8,3 +8,7 @@ slowapi
 instructor
 crawl4ai
 ipykernel
+langchain
+deepagents
+langchain-groq
+langgraph-cli[inmem]
