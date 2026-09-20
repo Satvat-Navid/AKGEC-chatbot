@@ -9,7 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from models import ChatRequest
-from agents import context, summerize, response, GENERAL_MODEL, TOOL_MODEL
+from agent import run_agent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -42,20 +42,17 @@ app.add_middleware(
 )
 
 @app.post("/api/chat")
-@limiter.limit("2/minute; 100/day")
+@limiter.limit("3/minute; 100/day")
 async def chat(fastapi_request: ChatRequest, request: Request):
-    logger.info(f"Received query {request.client.host}: {fastapi_request.message}")
+    logger.info("Received chat query from %s", request.client.host)
     try:
-        history = await summerize(fastapi_request.history, model=GENERAL_MODEL, max_tokens=512) if fastapi_request.history else ""
-        db_context = await context(message=fastapi_request.message, history=history, model=TOOL_MODEL)
-        reply = await response(user_input=fastapi_request.message, model=GENERAL_MODEL, context=db_context.get('context'), history=history)
-        logger.info(f"Conversation History Lenght: {len(history)/4}")
-        # logger.info(db_context.get("context"))
-        return {
-            "reply": reply,
-            "context_used": db_context,
-            "history": history
-        }
+        result = await __import__('asyncio').to_thread(
+            run_agent,
+            fastapi_request.message,
+            fastapi_request.history,
+        )
+        logger.info(f"Conversation History Length: {len(fastapi_request.history or '') / 4}")
+        return result
     except Exception as e:
         logger.error("!!! An unexpected error occurred !!!", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal server error occurred.")
