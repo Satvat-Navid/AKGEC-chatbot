@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from models import ChatRequest
 from agent import run_agent
-
+from agent_async import run_agent  #In case if i want to retrieve the data in parallel
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -59,3 +59,7 @@ async def chat(fastapi_request: ChatRequest, request: Request):
 
 # This is crucial part for serving the frontend
 app.mount("/", StaticFiles(directory="public", html = True), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

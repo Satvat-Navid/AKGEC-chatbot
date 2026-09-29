@@ -1,7 +1,8 @@
 import os
 import json
 import logging
-from typing import Literal, TypedDict
+import operator
+from typing import Annotated, Literal, TypedDict
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -11,6 +12,7 @@ from langchain.chat_models import init_chat_model
 from langchain.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import Overwrite, Send
 
 from erp_info import ERPClient, ERPError, ERPData
 
@@ -135,8 +137,11 @@ class ClassifierOutput(BaseModel):
 class State(TypedDict, total=False):
     input: str
     history: str
+    have_credentials: bool
     plan: ClassifierOutput
-    retrieval_results: list[dict]
+    retrieval_request: RetrievalRequest
+    retrieval_index: int
+    retrieval_results: Annotated[list[dict], operator.add]
     context: str
     output: str
 
@@ -269,7 +274,7 @@ AVAILABLE SOURCES:
    marks, academic records, fees, personal timetable, etc.
 
    Requirements:
-   - BOTH student_id and password MUST appear in the CURRENT user message or in the conversation history / state.
+   - BOTH student_id and password MUST appear in the CURRENT user message or must be available in the state.
    - Copy them exactly.
    - Never infer, guess, remember, or fabricate credentials.
    - search_query should describe the specific student information requested.
@@ -345,6 +350,10 @@ Rules:
 # Nodes
 # ============================================================
 
+def reset_turn(_: State) -> dict:
+    return {"retrieval_results": Overwrite([])}
+
+
 def classify_request(state: State) -> dict:
     """Classify the query into zero, one, or multiple retrievals."""
 
@@ -364,92 +373,43 @@ def classify_request(state: State) -> dict:
     return {"plan": plan}
 
 
-def retrieve_data(state: State) -> dict:
-    """
-    Execute all retrieval requests in the classifier plan.
+def retrieve_one(state: State) -> dict:
+    """Execute one retrieval request dispatched by the classifier."""
 
-    The graph stays simple because one node handles the retrieval loop.
-    """
+    request = state["retrieval_request"]
+    query = request.search_query or state["input"]
 
-    plan = state["plan"]
-    results = []
-
-    for request in plan.retrievals:
-
-        if request.source == "student_erp":
-
-            if not request.student_id or not request.password:
-                results.append(
-                    {
-                        "source": "student_erp",
-                        "query": request.search_query or "",
-                        "context": (
-                            "Private ERP data could not be retrieved because "
-                            "both student ID and ERP password are required."
-                        ),
-                    }
-                )
-                continue
-
-            data = student_data(
-                student_id=request.student_id,
-                password=request.password,
+    if request.source == "student_erp":
+        if not request.student_id or not request.password:
+            context = (
+                "Private ERP data could not be retrieved because both "
+                "student ID and ERP password are required."
             )
-
-            if data is None:
-                results.append(
-                    {
-                        "source": "student_erp",
-                        "query": request.search_query or "",
-                        "context": (
-                            "The ERP retrieval failed. No verified student "
-                            "ERP data was returned."
-                        ),
-                    }
-                )
-                continue
-
-            data_text = (
+        else:
+            data = student_data(request.student_id, request.password)
+            context = (
                 json.dumps(data, ensure_ascii=False, default=str)
                 if isinstance(data, dict)
-                else str(data)
+                else str(data) if data is not None else (
+                    "The ERP retrieval failed. No verified student ERP data "
+                    "was returned."
+                )
             )
+    elif request.source == "college_database":
+        context = college_database_search(query).get("context", "")
+    else:
+        context = current_info_search(query).get("context", "")
 
-            results.append(
-                {
-                    "source": "student_erp",
-                    "query": request.search_query or "",
-                    "context": data_text,
-                }
-            )
-
-        elif request.source == "college_database":
-
-            query = request.search_query or state["input"]
-            result = college_database_search(query)
-
-            results.append(
-                {
-                    "source": "college_database",
-                    "query": query,
-                    "context": result.get("context", ""),
-                }
-            )
-
-        elif request.source == "current_info":
-
-            query = request.search_query or state["input"]
-            result = current_info_search(query)
-
-            results.append(
-                {
-                    "source": "current_info",
-                    "query": query,
-                    "context": result.get("context", ""),
-                }
-            )
-
-    return {"retrieval_results": results}
+    return {
+        "retrieval_results": [
+            {
+                "source": request.source,
+                "query": query,
+                "context": context,
+                "_index": state["retrieval_index"],
+            }
+        ]
+    }
 
 
 def build_context(state: State) -> dict:
@@ -457,7 +417,10 @@ def build_context(state: State) -> dict:
 
     sections = []
 
-    for result in state.get("retrieval_results", []):
+    for result in sorted(
+        state.get("retrieval_results", []),
+        key=lambda item: item.get("_index", 0),
+    ):
         context = (result.get("context") or "").strip()
 
         if not context:
@@ -535,16 +498,29 @@ Retrieved context:
 # Routing
 # ============================================================
 
-def route_after_classifier(state: State) -> str:
-    decision = state["plan"].decision
+def route_after_classifier(state: State) -> str | list[Send]:
+    plan = state["plan"]
 
-    if decision == "retrieval_not_required":
+    if plan.decision == "retrieval_not_required":
         return "llm_call"
 
-    if decision == "access_denied":
+    if plan.decision == "access_denied":
         return "access_denied"
 
-    return "retrieve_data"
+    if not plan.retrievals:
+        return "build_context"
+
+    return [
+        Send(
+            "retrieve_one",
+            {
+                "input": state["input"],
+                "retrieval_request": request,
+                "retrieval_index": index,
+            },
+        )
+        for index, request in enumerate(plan.retrievals)
+    ]
 
 
 # ============================================================
@@ -553,25 +529,23 @@ def route_after_classifier(state: State) -> str:
 
 graph = StateGraph(State)
 
+graph.add_node("reset_turn", reset_turn)
 graph.add_node("classifier", classify_request)
-graph.add_node("retrieve_data", retrieve_data)
+graph.add_node("retrieve_one", retrieve_one)
 graph.add_node("build_context", build_context)
 graph.add_node("access_denied", access_denied)
 graph.add_node("llm_call", llm_call)
 
-graph.add_edge(START, "classifier")
+graph.add_edge(START, "reset_turn")
+graph.add_edge("reset_turn", "classifier")
 
 graph.add_conditional_edges(
     "classifier",
     route_after_classifier,
-    {
-        "retrieve_data": "retrieve_data",
-        "access_denied": "access_denied",
-        "llm_call": "llm_call",
-    },
+    ["retrieve_one", "build_context", "access_denied", "llm_call"],
 )
 
-graph.add_edge("retrieve_data", "build_context")
+graph.add_edge("retrieve_one", "build_context")
 graph.add_edge("build_context", "llm_call")
 
 graph.add_edge("access_denied", END)
@@ -598,7 +572,6 @@ def run_agent(message: str, history: str = "") -> dict:
         {
             "input": message,
             "history": history,
-            "retrieval_results": [],
             "context": "",
             "output": "",
         },
