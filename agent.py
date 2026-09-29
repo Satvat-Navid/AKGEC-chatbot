@@ -29,7 +29,8 @@ CURRENT_INFO_NAMESPACE = os.getenv(
     "CURRENT_INFO_NAMESPACE",
     "fit-markdown-data",
 )
-
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "openai/gpt-oss-120b")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "openai/gpt-oss-120b")
 COLLEGE_TOP_K = int(os.getenv("COLLEGE_TOP_K", "2"))
 CURRENT_INFO_TOP_K = int(os.getenv("CURRENT_INFO_TOP_K", "3"))
 
@@ -228,7 +229,7 @@ def current_info_search(query: str) -> dict:
 # ============================================================
 
 classifier_model = init_chat_model(
-    "qwen/qwen3.8-27b",
+    CLASSIFIER_MODEL,
     model_provider="groq",
     api_key=GROQ_API_KEY,
     max_tokens=2048,
@@ -239,7 +240,7 @@ classifier_model = init_chat_model(
 )
 
 answer_model = init_chat_model(
-    "openai/gpt-oss-120b",
+    CHAT_MODEL,
     model_provider="groq",
     api_key=GROQ_API_KEY,
     max_tokens=2048,
